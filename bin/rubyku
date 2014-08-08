@@ -14,9 +14,10 @@ class App < Thor
   attr_reader :local_git_path, :remote_name, :hostname, :remote_project_name
 
   REGEX_SYMBOL = /\A[a-zA-Z_\.\-]+\z/
+  RUBYKU_DIR   = File.expand_path("../..", __FILE__)
 
   desc "init HOSTNAME", "Initialize the target server"
-  def init(hostname, template)
+  def init(hostname)
     @hostname = hostname
 
     ## Did the user already have a RubyKU template file?
@@ -76,30 +77,39 @@ class App < Thor
       /home/#{ app_username }/.rvm/bin/rvm requirements
     SCRIPT
 
+    # Install Ruby 2.1.2 and Foreman in RVM.
+    ssh app_username, <<-SCRIPT
+      bash -l -c '
+        rvm install 2.1.2
+        rvm use --default 2.1.2
+        gem install --no-rdoc --no-ri foreman
+      '
+    SCRIPT
+
     # Reboot, if configured
     if reboot_after_init
       ssh "root", "reboot"
     end
   end
 
-  desc "add LOCAL_PATH", "Add the local Ruby project to the remote host"
-  def add(local_path)
+  desc "add LOCAL_PATH REMOTE_NAME HOSTNAME REMOTE_PROJECT_NAME", "Add the local Ruby project to the remote host"
+  def add(local_path, remote_name, hostname, remote_project_name)
     # Set up ivars
     @local_git_path      = local_path
-    @remote_name         = ask("What name should the local git repository use for the new remote?")
-    @hostname            = ask("What is the hostname of the remote server?")
-    @remote_project_name = ask("What name should this project use on the remote server?")
+    @remote_name         = remote_name || ask("What name should the local git repository use for the new remote?")
+    @hostname            = hostname || ask("What is the hostname of the remote server?")
+    @remote_project_name = remote_project_name || ask("What name should this project use on the remote server?")
 
     # Validate the input
-    unless [ remote_name, hostname, remote_project_name ].all? { |s| s =~ REGEX_SYMBOL }
-      die "invalid input"
-    end
+    #unless [ remote_name, hostname, remote_project_name ].all? { |s| s =~ REGEX_SYMBOL }
+    #  die "invalid input"
+    #end
 
     # Verify that the specified path looks correct and chdir
     check_and_chdir_git! local_git_path
 
     # Test if the remote project path already exists
-    (stdout, stderr, code, signal) = ssh(app_username, "ls #{ esc remote_project_name }")
+    (stdout, stderr, code, signal) = ssh(app_username, "ls #{ esc remote_project_name } > /dev/null 2>&1")
     if code == 0
       die "project path #{ remote_project_name } already exists on #{ hostname }"
     end
@@ -109,13 +119,26 @@ class App < Thor
 
     # Add the remote to the git project
     system "git remote rm #{ esc hostname }"
-    system "git remote add #{ esc hostname } #{ esc app_username }@#{ esc hostname }:#{ esc name }.git"
+    system "git remote add #{ esc hostname } #{ esc app_username }@#{ esc hostname }:#{ esc remote_project_name }"
 
     # Initialize the git repository on the remote host
-    ssh app_username, "git init --bare #{ esc name }.git"
+    ssh app_username, <<-SCRIPT
+      git init #{ esc remote_project_name }
+      cd #{ esc remote_project_name }
+      git config receive.denyCurrentBranch ignore
+      echo #{ esc read_template_file 'post-receive.sh' } > .git/hooks/post-receive
+      chmod u+x .git/hooks/post-receive
+    SCRIPT
 
     # Push the project to the remote host
     system "git push --all #{ esc hostname }"
+
+    # Load the new code
+    #ssh app_username, " bash -l -c '
+    #  cd #{ esc remote_project_name }
+    #  git checkout
+    #  sudo foreman export upstart /etc/init -a #{ esc remote_project_name } -u #{ esc app_username } -l $HOME/#{ esc remote_project_name }/log
+    #' "
 
     # Update the puma configuration to include the new project
     # Create a Postgres database for the application
@@ -131,6 +154,7 @@ class App < Thor
       postgresql-9.3 postgresql-client-9.3 postgresql-server-dev-9.3
       redis-server redis-tools
       git makepasswd silversearcher-ag
+      nodejs
     )
   end
 
@@ -172,15 +196,19 @@ class App < Thor
             abort "FAILED: couldn't execute command (ssh.channel.exec)"
           end
 
-          channel.on_data do |ch,data|
-            stdout_data+=data
+          channel.on_data do |ch, data|
+            STDOUT.print(data); STDOUT.flush
+
+            stdout_data << data
           end
 
-          channel.on_extended_data do |ch,type,data|
-            stderr_data+=data
+          channel.on_extended_data do |ch, type, data|
+            STDERR.print(data); STDERR.flush
+
+            stderr_data << data
           end
 
-          channel.on_request("exit-status") do |ch,data|
+          channel.on_request("exit-status") do |ch, data|
             exit_code = data.read_long
           end
 
@@ -242,6 +270,19 @@ class App < Thor
   def die(message)
     puts message.to_s
     exit 1
+  end
+
+  def read_template_file(filename)
+    File.read(File.join RUBYKU_DIR, "templates", filename)
+  end
+
+  def read_project_config(key)
+    check_and_chdir_git! local_git_path
+
+    yaml_filename = File.join(local_git_path, "config", "rubyku.yml")
+    yaml          = if File.file?(yaml_filename) then File.read(yaml_filename) end
+    yaml_hash     = if yaml then YAML.load(yaml) end
+    yaml_hash[key]  if yaml_hash
   end
 
 end
