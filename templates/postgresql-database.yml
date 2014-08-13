@@ -1,0 +1,7 @@
+production:
+  adapter:  postgresql
+  host:     localhost
+  encoding: unicode
+  database: %%database%%
+  username: %%username%%
+  pool:     5

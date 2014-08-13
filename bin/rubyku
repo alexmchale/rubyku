@@ -1,288 +1,32 @@
 #!/usr/bin/env ruby
 
-require "rubygems"
-require "thor"
-require "shellwords"
-require "fileutils"
-require "net/ssh"
-require "highline"
+$LOAD_PATH.unshift(File.expand_path("../../lib", __FILE__))
+require "rubyku"
 
 class App < Thor
 
-  include FileUtils
-
-  attr_reader :local_git_path, :remote_name, :hostname, :remote_project_name
-
-  REGEX_SYMBOL = /\A[a-zA-Z_\.\-]+\z/
-  RUBYKU_DIR   = File.expand_path("../..", __FILE__)
-
   desc "init HOSTNAME", "Initialize the target server"
   def init(hostname)
-    @hostname = hostname
-
-    ## Did the user already have a RubyKU template file?
-    #unless File.file? rubyku_template_filename
-    #  puts "The #{ rubyku_template_filename } file didn't exist .. creating a template for you."
-    #  puts "Please edit that file before running init again."
-    #  create_rubyku_template!
-    #  exit 1
-    #end
-
-    # Update / upgrade / install system packages
-    ssh "root", <<-SCRIPT
-      # Ensure package files are up to date
-      apt-get -y update
-      apt-get -y upgrade
-
-      # Install packages that we use
-      apt-get -y install #{ all_system_packages.join(' ') }
-    SCRIPT
-
-    # Setup the deployment user
-    ssh "root", <<-SCRIPT
-      # Setup the app user
-      if [ ! -d /home/#{ app_username } ]; then
-        # Create the user account
-        useradd \
-          --home /home/#{ app_username } \
-          --create-home \
-          --shell /bin/bash \
-          --password "`makepasswd --chars=20`" \
-          #{ app_username }
-
-        # Grant access to the same keys
-        mkdir /home/#{ app_username }/.ssh
-        cp /root/.ssh/authorized_keys /home/#{ app_username }/.ssh/authorized_keys
-        chown -R #{ app_username } /home/#{ app_username }/.ssh
-        chmod -R go-rwx /home/#{ app_username }/.ssh
-      fi
-    SCRIPT
-
-    # Configure RVM for the deployment user
-    ssh app_username, <<-SCRIPT
-      # Set up RVM on the app user
-      curl -sSL https://get.rvm.io | bash -s stable
-
-      # Configure global gems
-      cp ~/.rvm/gemsets/global.gems /tmp/global.gems
-      echo bundler >> /tmp/global.gems
-      echo puma >> /tmp/global.gems
-      sort -u /tmp/global.gems > ~/.rvm/gemsets/global.gems
-      rm /tmp/global.gems
-    SCRIPT
-
-    # Install RVM's build requirements
-    ssh "root", <<-SCRIPT
-      # Install RVM's build requirements
-      /home/#{ app_username }/.rvm/bin/rvm requirements
-    SCRIPT
-
-    # Install Ruby 2.1.2 and Foreman in RVM.
-    ssh app_username, <<-SCRIPT
-      bash -l -c '
-        rvm install 2.1.2
-        rvm use --default 2.1.2
-        gem install --no-rdoc --no-ri foreman
-      '
-    SCRIPT
-
-    # Reboot, if configured
-    if reboot_after_init
-      ssh "root", "reboot"
-    end
+    Rubyku::SystemInitializer.new(hostname, options).run
   end
 
-  desc "add LOCAL_PATH REMOTE_NAME HOSTNAME REMOTE_PROJECT_NAME", "Add the local Ruby project to the remote host"
-  def add(local_path, remote_name, hostname, remote_project_name)
-    # Set up ivars
-    @local_git_path      = local_path
-    @remote_name         = remote_name || ask("What name should the local git repository use for the new remote?")
-    @hostname            = hostname || ask("What is the hostname of the remote server?")
-    @remote_project_name = remote_project_name || ask("What name should this project use on the remote server?")
-
-    # Validate the input
-    #unless [ remote_name, hostname, remote_project_name ].all? { |s| s =~ REGEX_SYMBOL }
-    #  die "invalid input"
-    #end
-
-    # Verify that the specified path looks correct and chdir
-    check_and_chdir_git! local_git_path
-
-    # Test if the remote project path already exists
-    (stdout, stderr, code, signal) = ssh(app_username, "ls #{ esc remote_project_name } > /dev/null 2>&1")
-    if code == 0
-      die "project path #{ remote_project_name } already exists on #{ hostname }"
-    end
-
-    # Install the ruby
-    ssh app_username, ".rvm/bin/rvm install #{ esc File.read '.ruby-version' }"
-
-    # Add the remote to the git project
-    system "git remote rm #{ esc hostname }"
-    system "git remote add #{ esc hostname } #{ esc app_username }@#{ esc hostname }:#{ esc remote_project_name }"
-
-    # Initialize the git repository on the remote host
-    ssh app_username, <<-SCRIPT
-      git init #{ esc remote_project_name }
-      cd #{ esc remote_project_name }
-      git config receive.denyCurrentBranch ignore
-      echo #{ esc read_template_file 'post-receive.sh' } > .git/hooks/post-receive
-      chmod u+x .git/hooks/post-receive
-    SCRIPT
-
-    # Push the project to the remote host
-    system "git push --all #{ esc hostname }"
-
-    # Load the new code
-    #ssh app_username, " bash -l -c '
-    #  cd #{ esc remote_project_name }
-    #  git checkout
-    #  sudo foreman export upstart /etc/init -a #{ esc remote_project_name } -u #{ esc app_username } -l $HOME/#{ esc remote_project_name }/log
-    #' "
-
-    # Update the puma configuration to include the new project
-    # Create a Postgres database for the application
-    # Set up database.yml in the project
-  end
-
-  protected
-
-  def default_system_packages
-    %w(
-      make gcc libssl-dev
-      nginx
-      postgresql-9.3 postgresql-client-9.3 postgresql-server-dev-9.3
-      redis-server redis-tools
-      git makepasswd silversearcher-ag
-      nodejs
-    )
-  end
-
-  def extra_system_packages
-    %w(
-    )
-  end
-
-  def all_system_packages
-    default_system_packages + extra_system_packages
-  end
-
-  def app_username
-    "app"
-  end
-
-  def reboot_after_init
-    true
-  end
-
-  private
-
-  def esc(string)
-    Shellwords.escape(string.to_s.strip)
-  end
-
-  def ssh(username, command)
-    die "@hostname is not configured" if @hostname.to_s == ""
-
-    Net::SSH.start(@hostname, username) do |ssh|
-      stdout_data = ""
-      stderr_data = ""
-      exit_code   = nil
-      exit_signal = nil
-
-      ssh.open_channel do |channel|
-        channel.exec(command) do |ch, success|
-          unless success
-            abort "FAILED: couldn't execute command (ssh.channel.exec)"
-          end
-
-          channel.on_data do |ch, data|
-            STDOUT.print(data); STDOUT.flush
-
-            stdout_data << data
-          end
-
-          channel.on_extended_data do |ch, type, data|
-            STDERR.print(data); STDERR.flush
-
-            stderr_data << data
-          end
-
-          channel.on_request("exit-status") do |ch, data|
-            exit_code = data.read_long
-          end
-
-          channel.on_request("exit-signal") do |ch, data|
-            exit_signal = data.read_long
-          end
-        end
-      end
-
-      ssh.loop
-
-      [ stdout_data, stderr_data, exit_code, exit_signal ]
-    end
-  end
-
-  def rubyku_template_filename
-    File.expand_path("~/.rubyku.yaml")
-  end
-
-  def create_rubyku_template!
-    File.open(rubyku_template_filename, "w") do |f|
-      f.puts YAML.dump(default_rubyku_template)
-    end
-  end
-
-  def default_rubyku_template
-    {
-      "reboot_after_init"     => true,
-      "app_username"          => "app",
-      "extra_system_packages" => [],
-      "create_database_yml"   => true,
-    }
-  end
-
-  def check_and_chdir_git!(local_git_path)
-    # Check that the path exists
-    if !File.directory?(File.join(local_git_path, ".git"))
-      die "#{ local_git_path } is not a git repository"
-    else
-      chdir local_git_path
-    end
-
-    # Check that config/database.yml isn't checked in, is ignored
-    if system("git ls-files config/database.yml --error-unmatch > /dev/null 2>&1")
-      die "database.yml is checked into git and should not be"
-    end
-
-    # Check that config/database.yml isn't checked in, is ignored
-    if !system("git check-ignore config/database.yml > /dev/null 2>&1")
-      die "database.yml is not ignored by git and should be"
-    end
-
-    # Test that the proj has .ruby-version
-    if !File.file?(".ruby-version")
-      die "repository must have a .ruby-version file"
-    end
-  end
-
-  def die(message)
-    puts message.to_s
-    exit 1
-  end
-
-  def read_template_file(filename)
-    File.read(File.join RUBYKU_DIR, "templates", filename)
-  end
-
-  def read_project_config(key)
-    check_and_chdir_git! local_git_path
-
-    yaml_filename = File.join(local_git_path, "config", "rubyku.yml")
-    yaml          = if File.file?(yaml_filename) then File.read(yaml_filename) end
-    yaml_hash     = if yaml then YAML.load(yaml) end
-    yaml_hash[key]  if yaml_hash
+  desc "add",
+    "Add the local Ruby project to the remote host"
+  method_option :local_path, type: :string,
+    desc: "The local path to the git project to add. " +
+          "If this option is not specified, the current working directory will be used."
+  method_option :git_remote_name, type: :string,
+    desc: "The name of the git remote to add to the local repository. " +
+          "If this option is not specified, the hostname will be used."
+  method_option :remote_project_name, type: :string,
+    desc: "The name to use on the remote server for this project. " +
+          "If this option is not specified, the hostname will be used with dots replaced by dashes."
+  method_option :yes, type: :boolean,
+    desc: "Skip confirmation of details"
+  method_option :env, type: :hash,
+    desc: "List of environment variables to add, e.g. --env=AWS_ACCESS_KEY_ID:ABC123 AWS_SECRET_ACCESS_KEY:FOOBAR999"
+  def add(hostname)
+    Rubyku::ProjectInitializer.new(hostname, options).run
   end
 
 end
