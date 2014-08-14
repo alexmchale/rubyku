@@ -62,6 +62,24 @@ module Rubyku
       end
     end
 
+    def ssh_run_template(username, template, template_options = {})
+      ssh(username, read_template_file(template, template_options))
+    end
+
+    def ssh_write_file(username, remote_path, content, &block)
+      raise "cannot specify both content and block" if content && block
+      content ||= block.call
+
+      ssh(username, <<-SCRIPT)
+        mkdir -p $( dirname #{ esc remote_path } )
+        echo #{ esc content } > #{ esc remote_path }
+      SCRIPT
+    end
+
+    def ssh_write_template(username, remote_path, template, template_options = {})
+      ssh_write_file(username, remote_path, read_template_file(template, template_options))
+    end
+
     def log(message)
       puts
       puts "#{ yellow '---->' } #{ green message.to_s }"
@@ -77,8 +95,13 @@ module Rubyku
       path   = File.expand_path("../../../templates/#{ filename }", __FILE__)
       string = File.read(path)
 
-      replacements.inject(string) do |string, (key, value)|
-        string.gsub("%%#{ key }%%", value.to_s)
+      replacements.merge({
+        :app_username => app_username              ,
+        :app_home     => "/home/#{ app_username }" ,
+      }).inject(string) do |string, (key, value)|
+        string
+          .gsub("%%esc:#{ key }%%", esc(value.to_s))
+          .gsub("%%#{ key }%%", value.to_s)
       end
     end
 

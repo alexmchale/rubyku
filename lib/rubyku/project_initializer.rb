@@ -45,32 +45,12 @@ module Rubyku
       system "git remote add #{ esc hostname } #{ esc app_username }@#{ esc hostname }:#{ esc remote_project_name }"
 
       # Create the PostgreSQL database
-      log "Creating a PostgreSQL database"
-      postgresql_dbname   = remote_project_name
-      postgresql_username = remote_project_name
-      postgresql_password = SecureRandom.hex
-      (stdout, stderr, code, signal) = ssh "root", <<-SCRIPT
-        # Create the PostgreSQL user and database
-        cd /tmp
-        echo "CREATE ROLE #{ postgresql_username } PASSWORD '#{ postgresql_password }' LOGIN" | sudo -u postgres psql
-        sudo -u postgres createdb #{ esc postgresql_dbname } --owner=#{ esc postgresql_username }
-
-        # Add the database password to pgpass
-        if [ "$?" = "0" ]; then
-          echo #{
-            [
-              'localhost'         ,
-              '*'                 ,
-              postgresql_dbname   ,
-              postgresql_username ,
-              postgresql_password ,
-            ].join(':')
-          } >> /home/#{ esc app_username }/.pgpass
-        fi
-
-        chown #{ esc app_username } /home/#{ esc app_username }/.pgpass
-        chmod 0600 /home/#{ esc app_username }/.pgpass
-      SCRIPT
+      log("Creating a PostgreSQL database")
+      ssh_run_template("root", "create_postgres_database.sh", {
+        :dbname => remote_project_name ,
+        :dbuser => remote_project_name ,
+        :dbpass => SecureRandom.hex    ,
+      })
 
       # Initialize the git repository on the remote host
       log "Initializing the new repository on the remote host"
@@ -89,23 +69,23 @@ module Rubyku
         mkdir -p config
         echo #{
           esc read_template_file('postgresql-database.yml', {
-            :database => postgresql_dbname   ,
-            :username => postgresql_username ,
+            :database => remote_project_name ,
+            :username => remote_project_name ,
           })
         } > config/database.yml
       SCRIPT
 
       # Set ENV file
-      options[:env] ||= Hash.new
-      options[:env]["RAILS_ENV"] ||= "production"
-      options[:env]["PATH"] = "/home/#{ app_username }/.rvm/wrappers/#{ remote_project_name }:$PATH"
-      options[:env]["SECRET_KEY_BASE"] = SecureRandom.hex(64)
-      env = options[:env].map { |k, v| "#{ k }=#{ v }\n" }.join
       log "Writing dotenv file in project"
-      ssh app_username, <<-SCRIPT
-        cd #{ esc remote_project_name }
-        echo #{ esc env } > .env
-      SCRIPT
+      ssh_write_file(app_username, "#{ remote_project_name }/.env") do
+        (options[:env] || {}).merge({
+          "RAILS_ENV"       => "production"                                                           ,
+          "PATH"            => "/home/#{ app_username }/.rvm/wrappers/#{ remote_project_name }:$PATH" ,
+          "SECRET_KEY_BASE" => SecureRandom.hex(64)                                                   ,
+        }).map do |key, value|
+          "#{ k }=#{ v }\n"
+        end.join
+      end
 
       # Set the nginx configuration
       ssh "root", <<-SCRIPT
