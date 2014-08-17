@@ -75,6 +75,9 @@ module Rubyku
         # Install RVM's build requirements
         /home/#{ app_username }/.rvm/bin/rvm requirements
       SCRIPT
+
+      # We're done!
+      log "System initialization complete on #{ hostname }"
     end
 
     def default_system_packages
