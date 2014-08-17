@@ -67,10 +67,6 @@ module Rubyku
         mkdir -p $HOME/.port_numbers
         echo #{ esc read_template_file 'get_port.sh' } > $HOME/.port_numbers/get_port
         chmod u+x $HOME/.port_numbers/get_port
-
-        # Set up directory for logs and pids
-        mkdir -p $HOME/.pids
-        mkdir -p $HOME/.logs
       SCRIPT
 
       # Install RVM's build requirements

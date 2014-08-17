@@ -77,7 +77,7 @@ module Rubyku
 
       # Set ENV file
       log "Writing dotenv file in project"
-      ssh_write_file(app_username, "#{ remote_project_name }/.env") do
+      ssh_write_file(app_username, "#{ remote_project_name }/.env", nil) do
         (options[:env] || {}).merge({
           "RAILS_ENV"       => "production"                                                           ,
           "PATH"            => "/home/#{ app_username }/.rvm/wrappers/#{ remote_project_name }:$PATH" ,
@@ -88,23 +88,9 @@ module Rubyku
       end
 
       # Set the nginx configuration
-      ssh "root", <<-SCRIPT
-        # Write the configuration file
-        cd /etc/nginx
-        echo #{
-          esc read_template_file('nginx.template.conf',
-                app: remote_project_name,
-                app_root: "/home/#{ app_username }/#{ remote_project_name }",
-                hostname: hostname,
-              )
-        } > sites-available/#{ remote_project_name }
-        ln -sf /etc/nginx/sites-available/#{ remote_project_name } sites-enabled/#{ remote_project_name }
-
-        # Kill HUP nginx to reload its configuration
-        if [ -f /run/nginx.pid ]; then
-          kill -HUP $( cat /run/nginx.pid )
-        fi
-      SCRIPT
+      ssh_run_template("root", "nginx.configure-app.sh", {
+        :nginx_conf => read_template_file("nginx.template.conf") ,
+      })
 
       # Push the project to the remote host
       log "Pushing the local repository to the remote"

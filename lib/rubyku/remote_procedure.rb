@@ -96,8 +96,11 @@ module Rubyku
       string = File.read(path)
 
       replacements.merge({
-        :app_username => app_username              ,
-        :app_home     => "/home/#{ app_username }" ,
+        :app          => remote_project_name                                ,
+        :app_username => app_username                                       ,
+        :app_home     => "/home/#{ app_username }"                          ,
+        :app_root     => "/home/#{ app_username }/#{ remote_project_name }" ,
+        :hostname     => hostname                                           ,
       }).inject(string) do |string, (key, value)|
         string
           .gsub("%%esc:#{ key }%%", esc(value.to_s))
