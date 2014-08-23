@@ -1,6 +1,13 @@
 #!/usr/bin/env ruby
 
-$LOAD_PATH.unshift(File.expand_path("../../lib", __FILE__))
+me =
+  if File.symlink? __FILE__
+    File.readlink __FILE__
+  else
+    __FILE__
+  end
+
+$LOAD_PATH.unshift(File.expand_path("../../lib", me))
 require "rubyku"
 
 class App < Thor
