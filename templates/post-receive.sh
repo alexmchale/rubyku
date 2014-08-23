@@ -1,5 +1,21 @@
 #!/bin/bash -l
 
+### Helper Functions ###
+
+# Detect if various files changed.
+function did_file_change () {
+  local filename=$1
+  git diff --name-only "$REVSPEC" | egrep "^$filename$" > /dev/null 2>&1
+}
+
+# Detect if a gem is installed.
+function is_gem_installed () {
+  local gem=$1
+  test "`bundle exec gem list $gem -i 2>&1`" = "true"
+}
+
+### Setup ###
+
 # Fail on errors, be verbose.
 set -o errexit
 set -o verbose
@@ -7,33 +23,25 @@ set -o verbose
 # Get into the project directory w/o GIT_DIR there to mess us up.
 cd ..
 unset GIT_DIR
+
+# Prepare the environment.
 export RAILS_ENV=production
-app=$( basename `pwd` )
+export APP=$( basename `pwd` )
+export PORT=$( $HOME/.port_numbers/get_port )
+export USER=$( whoami )
 
 # Get the revspec for this push.
 while read oval nval ref ; do
   if expr "$ref" : "^refs/heads/"; then
     if expr "$oval" : '0*$' >/dev/null; then
-      revspec=$nval
+      export REVSPEC=$nval
     else
-      revspec=$oval..$nval
+      export REVSPEC=$oval..$nval
     fi
   fi
 done
 
-# Detect if the bundle changed.
-if [ git diff --name-only "$revspec" | egrep '^Gemfile.lock$' > /dev/null 2>&1 ]; then
-  bundle_changed="1"
-else
-  bundle_changed="0"
-fi
-
-# Detect if the system packages changed.
-if [ git diff --name-only "$revspec" | egrep '^config/rubyku.yml$' > /dev/null 2>&1 ]; then
-  system_packages_changed="1"
-else
-  system_packages_changed="0"
-fi
+### Deployment ###
 
 # Ensure we've got a clean repository on the latest commit.
 git checkout
@@ -41,28 +49,29 @@ git reset --hard HEAD
 git clean -df
 
 # Install any new required system packages.
-if [ "$system_packages_changed" = "1" ]; then
+if did_file_change "config/rubyku.yml"; then
   sudo apt-get -y update
   sudo apt-get -y install $( ruby -r yaml -e 'puts YAML.load(File.read("config/rubyku.yml"))["system_packages"].map(&:strip).join(" ") rescue Exception' )
 fi
 
 # Install the new bundle if changed.
-if [ "$bundle_changed" = "1" ]; then
+if did_file_change "Gemfile.lock"; then
   bundle install --without development test
 fi
 
+# Re-load the crontab if needed.
+if did_file_change "config/schedule.rb" && is_gem_installed "whenever"; then
+  bundle exec whenever --write-crontab "$APP"
+fi
+
 # Update wrappers for this application.
-rvm alias create "$app" "`cat .ruby-version`"
+rvm alias create "$APP" "`cat .ruby-version`"
 
 # Update the application.
 bundle exec rake upgrade
 
 # Reload and bounce the service.
-port=$( $HOME/.port_numbers/get_port )
-user=$( whoami )
 sudo /usr/local/bin/foreman export upstart /etc/init \
-  --app "$app"                        \
-  --log "$HOME/.logs"                 \
-  --port "$port"                      \
-  --user "$user"                      \
-  --run "$HOME/.pids"
+  --app "$APP"   \
+  --port "$PORT" \
+  --user "$USER" \
