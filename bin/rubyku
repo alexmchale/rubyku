@@ -1,15 +1,13 @@
 #!/usr/bin/env ruby
 
-# De-reference if we're called via a symlink.
-me =
+# Load the Rubyku library, de-referencing the symlink if needed.
+$LOAD_PATH.unshift(File.expand_path("../../lib", 
   if File.symlink? __FILE__
     File.readlink __FILE__
   else
     __FILE__
   end
-
-# Load the Rubyku library.
-$LOAD_PATH.unshift(File.expand_path("../../lib", me))
+))
 require "rubyku"
 
 class App < Thor
