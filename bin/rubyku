@@ -8,33 +8,64 @@ me =
     __FILE__
   end
 
+# Load the Rubyku library.
 $LOAD_PATH.unshift(File.expand_path("../../lib", me))
 require "rubyku"
 
 class App < Thor
 
-  desc "init HOSTNAME", "Initialize the target server"
-  def init(hostname)
-    Rubyku::SystemInitializer.new(hostname, options).run
+  include Term::ANSIColor
+
+  desc "init SERVER_HOSTNAME",
+    "Initialize the target server for Rubyku deployment"
+  def init(server_hostname)
+    Rubyku::SystemInitializer.new(server_hostname, options).run
   end
 
-  desc "add",
+  desc "add SERVER_HOSTNAME",
     "Add the local Ruby project to the remote host"
-  method_option :local_path, type: :string,
-    desc: "The local path to the git project to add. " +
-          "If this option is not specified, the current working directory will be used."
-  method_option :git_remote_name, type: :string,
-    desc: "The name of the git remote to add to the local repository. " +
-          "If this option is not specified, the hostname will be used."
-  method_option :remote_project_name, type: :string,
-    desc: "The name to use on the remote server for this project. " +
-          "If this option is not specified, the hostname will be used with dots replaced by dashes."
-  method_option :yes, type: :boolean,
-    desc: "Skip confirmation of details"
-  method_option :env, type: :hash,
-    desc: "List of environment variables to add, e.g. --env=AWS_ACCESS_KEY_ID:ABC123 AWS_SECRET_ACCESS_KEY:FOOBAR999"
-  def add(hostname)
-    Rubyku::ProjectInitializer.new(hostname, options).run
+  method_option :yes,
+    type: :boolean,
+    desc: "Skip confirmation and prompting of details"
+  def add(server_hostname)
+    # Prompt for the missing details
+    log "Please enter some details about this app"
+    app_hostname = ask("What's the hostname to use for this app?", default: server_hostname)
+    local_path   = ask("What's the local path to the app?", default: Dir.pwd)
+    remote_name  = ask("What name to use for this remote server on the local repository?", default: "production")
+    app_name     = ask("What name to use for this app on the server?", default: File.basename(local_path))
+
+    # Confirm the input values
+    puts
+    puts(Terminal::Table.new do |t|
+      row = -> key, value {
+        t << [ yellow(key.to_s), green(value.to_s) ]
+      }
+
+      row["Server Hostname", server_hostname]
+      row["App Hostname", app_hostname]
+      row["Local Repository Path", local_path]
+      row["Local Repository Remote Name", remote_name]
+      row["Remote App Name", project_name]
+    end.to_s)
+    puts
+    exit unless options[:yes] || yes?("Do you want to proceed with these values?")
+
+    # Run the app initializer
+    Rubyku::ProjectInitializer.new(server_hostname, {
+      :app_hostname => app_hostname,
+      :local_path   => local_path,
+      :remote_path  => remote_path,
+      :app_name     => app_name,
+    }).run
+  end
+
+  private
+
+  def log(message)
+    puts
+    puts "#{ yellow '---->' } #{ green message.to_s }"
+    puts
   end
 
 end
