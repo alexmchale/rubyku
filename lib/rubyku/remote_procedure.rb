@@ -16,9 +16,7 @@ module Rubyku
       Shellwords.escape(string.to_s.strip)
     end
 
-    def ssh(username, command)
-      die "@hostname is not configured" if @hostname.to_s == ""
-
+    def ssh(username, command, &block)
       puts magenta(command.gsub(/^\s+/, "").gsub(/ +/, " ").strip)
       puts
 
@@ -58,7 +56,11 @@ module Rubyku
 
         ssh.loop
 
-        [ stdout_data, stderr_data, exit_code, exit_signal ]
+        if block
+          yield(stdout_data, stderr_data, exit_code, exit_signal)
+        else
+          [ stdout_data, stderr_data, exit_code, exit_signal ]
+        end
       end
     end
 

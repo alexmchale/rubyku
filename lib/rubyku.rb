@@ -1,14 +1,16 @@
 require "shellwords"
 require "securerandom"
 require "fileutils"
+require "resolv"
 
 require "rubygems"
 require "thor"
 require "net/ssh"
-require "highline/import"
 require "term/ansicolor"
+require "terminal-table"
 
 require "rubyku/version"
+require "rubyku/rubyku_error"
 require "rubyku/remote_procedure"
 require "rubyku/system_initializer"
 require "rubyku/project_initializer"

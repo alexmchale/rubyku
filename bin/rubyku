@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 
+# De-reference if we're called via a symlink.
 me =
   if File.symlink? __FILE__
     File.readlink __FILE__
