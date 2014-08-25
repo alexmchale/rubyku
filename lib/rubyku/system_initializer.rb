@@ -5,8 +5,6 @@ module Rubyku
 
   class SystemInitializer < RemoteProcedure
 
-    attr_reader :local_git_path, :remote_name, :hostname, :remote_project_name
-
     REGEX_SYMBOL = /\A[a-zA-Z_\.\-]+\z/
     RUBYKU_DIR   = File.expand_path("../..", __FILE__)
 
@@ -15,18 +13,23 @@ module Rubyku
       log "Installing system packages #{ blue default_system_packages.join(' ') }"
       ssh "root", <<-SCRIPT
         # Ensure package files are up to date
-        apt-get -y update
-        apt-get -y upgrade
+        DEBIAN_FRONTEND="noninteractive" dpkg --configure -a
+        DEBIAN_FRONTEND="noninteractive" apt-get -y update -qq
+        DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade
 
         # Install packages that we use
-        apt-get -y install #{ default_system_packages.join(' ') }
+        DEBIAN_FRONTEND="noninteractive" apt-get -y install #{ default_system_packages.join(' ') }
 
         # Install Foreman in the system ruby
-        /usr/local/bin/gem install --no-rdoc --no-ri foreman
+        /usr/bin/gem install --no-rdoc --no-ri foreman
 
         # Configure Postgres for authentication
         echo #{ esc read_template_file 'pg_hba.conf' } > /etc/postgresql/9.3/main/pg_hba.conf
         service postgresql restart
+
+        # Write the sudoers file
+        echo #{ esc read_template_file 'sudoers' } > /etc/sudoers.d/rubyku
+        chmod 0440 /etc/sudoers.d/rubyku
       SCRIPT
 
       # Setup the deployment user
@@ -54,16 +57,10 @@ module Rubyku
       log "Configuring RVM for #{ blue app_username }"
       ssh app_username, <<-SCRIPT
         # Set up RVM on the app user
-        curl -sSL https://get.rvm.io | bash -s stable
-
-        # Configure global gems
-        cp ~/.rvm/gemsets/global.gems /tmp/global.gems
-        echo bundler >> /tmp/global.gems
-        echo puma >> /tmp/global.gems
-        sort -u /tmp/global.gems > ~/.rvm/gemsets/global.gems
-        rm /tmp/global.gems
+        curl -sSL https://get.rvm.io | bash -s stable --with-gems="bundler puma"
 
         # Set up the get_port script
+        # TODO: Replace this with some kind of gem/app. Maybe Redis?
         mkdir -p $HOME/.port_numbers
         echo #{ esc read_template_file 'get_port.sh' } > $HOME/.port_numbers/get_port
         chmod u+x $HOME/.port_numbers/get_port
@@ -77,18 +74,17 @@ module Rubyku
       SCRIPT
 
       # We're done!
-      log "System initialization complete on #{ hostname }"
+      log "System initialization complete on #{ server_hostname }"
     end
 
     def default_system_packages
       %w(
-        make gcc libssl-dev
+        make automake autoconf gcc libssl-dev libreadline-dev
         nginx
         postgresql-9.3 postgresql-client-9.3 postgresql-server-dev-9.3
         redis-server redis-tools
         git makepasswd silversearcher-ag
-        nodejs
-        ruby2.0
+        nodejs ruby2.0
       )
     end
 

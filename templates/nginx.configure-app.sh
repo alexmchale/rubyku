@@ -2,8 +2,8 @@
 
 # Enable the app's configuration
 cd /etc/nginx
-echo %%esc:nginx_conf%% > sites-available/%%app%%
-ln -sf sites-available/%%app%% sites-enabled/%%app%%
+echo %%inject:nginx.template.conf%% > sites-available/%%app_name%%
+ln -sf sites-available/%%app_name%% sites-enabled/%%app_name%%
 
 # Kill HUP nginx to reload its configuration
 if [ -f /run/nginx.pid ]; then

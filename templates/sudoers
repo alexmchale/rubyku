@@ -1,0 +1,6 @@
+Defaults env_keep += "DEBIAN_FRONTEND"
+
+%%app_username%% ALL=(ALL) NOPASSWD: /usr/local/bin/foreman export*
+%%app_username%% ALL=(ALL) NOPASSWD: /usr/bin/apt-get -y install*
+%%app_username%% ALL=(ALL) NOPASSWD: /usr/bin/apt-get -y update*
+%%app_username%% ALL=(ALL) NOPASSWD: /usr/bin/apt-get -y upgrade*

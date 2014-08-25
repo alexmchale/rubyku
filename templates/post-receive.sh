@@ -5,7 +5,12 @@
 # Detect if various files changed.
 function did_file_change () {
   local filename=$1
-  git diff --name-only "$REVSPEC" | egrep "^$filename$" > /dev/null 2>&1
+
+  if [ -z "$REVSPEC" ]; then
+    git ls-files | egrep "^$filename$" > /dev/null 2>&1
+  else
+    git diff --name-only "$REVSPEC" | egrep "^$filename$" > /dev/null 2>&1
+  fi
 }
 
 # Detect if a gem is installed.
@@ -18,7 +23,7 @@ function is_gem_installed () {
 
 # Fail on errors, be verbose.
 set -o errexit
-set -o verbose
+#set -o verbose
 
 # Get into the project directory w/o GIT_DIR there to mess us up.
 cd ..
@@ -34,9 +39,9 @@ export USER=$( whoami )
 while read oval nval ref ; do
   if expr "$ref" : "^refs/heads/"; then
     if expr "$oval" : '0*$' >/dev/null; then
-      export REVSPEC=$nval
+      export REVSPEC=""
     else
-      export REVSPEC=$oval..$nval
+      export REVSPEC="$oval..$nval"
     fi
   fi
 done
@@ -48,10 +53,14 @@ git checkout
 git reset --hard HEAD
 git clean -df
 
+# Load RVM.
+cd .
+
 # Install any new required system packages.
 if did_file_change "config/rubyku.yml"; then
-  sudo apt-get -y update
-  sudo apt-get -y install $( ruby -r yaml -e 'puts YAML.load(File.read("config/rubyku.yml"))["system_packages"].map(&:strip).join(" ") rescue Exception' )
+  local_packages=$( ruby -r yaml -e 'puts YAML.load(File.read("config/rubyku.yml"))["system_packages"].map(&:strip).join(" ") rescue Exception' )
+  sudo DEBIAN_FRONTEND="noninteractive" apt-get -y update -qq
+  sudo DEBIAN_FRONTEND="noninteractive" apt-get -y install $local_packages
 fi
 
 # Install the new bundle if changed.

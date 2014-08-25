@@ -2,6 +2,6 @@ production:
   adapter:  postgresql
   host:     localhost
   encoding: unicode
-  database: %%database%%
-  username: %%username%%
+  database: %%app_name%%
+  username: %%app_name%%
   pool:     5

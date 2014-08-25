@@ -22,9 +22,14 @@ class App < Thor
 
   desc "add SERVER_HOSTNAME",
     "Add the local Ruby project to the remote host"
+  method_option :env,
+    type: :hash,
+    desc: "A list of environment variables to add to this app",
+    default: {}
   method_option :yes,
     type: :boolean,
-    desc: "Skip confirmation and prompting of details"
+    desc: "Skip confirmation and prompting of details",
+    default: false
   def add(server_hostname)
     # Prompt for the missing details
     log "Please enter some details about this app"
@@ -44,7 +49,7 @@ class App < Thor
       row["App Hostname", app_hostname]
       row["Local Repository Path", local_path]
       row["Local Repository Remote Name", remote_name]
-      row["Remote App Name", project_name]
+      row["Remote App Name", app_name]
     end.to_s)
     puts
     exit unless options[:yes] || yes?("Do you want to proceed with these values?")
@@ -53,8 +58,9 @@ class App < Thor
     Rubyku::ProjectInitializer.new(server_hostname, {
       :app_hostname => app_hostname,
       :local_path   => local_path,
-      :remote_path  => remote_path,
+      :remote_name  => remote_name,
       :app_name     => app_name,
+      :env          => options[:env] || {},
     }).run
   end
 

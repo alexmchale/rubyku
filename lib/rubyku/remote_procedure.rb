@@ -125,7 +125,7 @@ module Rubyku
         })
 
       # Append ones that exist for some procedures.
-      %i( app_name app_root app_hostname ).each do |key|
+      %i( app_name app_root app_hostname remote_name ).each do |key|
         if respond_to? key
           all_replacements[key] = send(key)
         end
@@ -135,16 +135,11 @@ module Rubyku
       inject = -> string do
         all_replacements.inject(string) do |str, (key, value)|
           [
-            [ "%%inject:#{ key }%%" , -> { esc(inject[value]) } ],
-            [ "%%esc:#{ key }%%"    , -> { esc(value.to_s)    } ],
-            [ "%%#{ key }%%"        , -> { value.to_s         } ],
+            [ "%%inject:#{ key }%%" , Proc.new { esc(inject[value]) } ],
+            [ "%%esc:#{ key }%%"    , Proc.new { esc(value.to_s)    } ],
+            [ "%%#{ key }%%"        , Proc.new { value.to_s         } ],
           ].inject(str) do |str, (anchor, replacement)|
-            if str.index anchor
-              str.gsub(anchor, replacement[])
-            else
-              str
-            end
-
+            str.gsub(anchor, &replacement)
           end
         end
       end
@@ -155,6 +150,10 @@ module Rubyku
       else
         raise RubykuError, "cannot find template #{ filename.inspect }"
       end
+    end
+
+    def run_template(filename, replacements = {})
+      system(read_template_file(filename, replacements))
     end
 
     def read_project_config key
