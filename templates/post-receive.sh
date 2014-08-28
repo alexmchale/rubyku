@@ -85,4 +85,4 @@ sudo /usr/local/bin/foreman export upstart /etc/init \
   --port "$PORT" \
   --user "$USER"
 sudo /sbin/initctl reload-configuration
-sudo /usr/sbin/service restart "$APP"
+sudo /usr/sbin/service "$APP" restart
