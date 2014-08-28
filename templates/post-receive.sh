@@ -83,4 +83,6 @@ bundle exec rake upgrade
 sudo /usr/local/bin/foreman export upstart /etc/init \
   --app "$APP"   \
   --port "$PORT" \
-  --user "$USER" \
+  --user "$USER"
+sudo /sbin/initctl reload-configuration
+sudo /usr/sbin/service restart "$APP"

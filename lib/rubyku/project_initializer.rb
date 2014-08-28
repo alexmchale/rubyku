@@ -2,7 +2,7 @@ module Rubyku
 
   class ProjectInitializer < RemoteProcedure
 
-    attr_reader :app_hostname, :app_name, :local_path, :remote_name
+    attr_reader :app_hostname, :app_name, :local_path, :remote_name, :app_root
 
     def run
       # Set up ivars
@@ -10,6 +10,7 @@ module Rubyku
       @app_name     = options[:app_name]
       @local_path   = options[:local_path]
       @remote_name  = options[:remote_name]
+      @app_root     = File.join("/home", app_username, app_name)
 
       # Verify the values
       log "Verifying configuration details"
@@ -21,10 +22,10 @@ module Rubyku
 
       # Test if the remote project path already exists
       # TODO: change this to instead verify that it's the same repository -- check the root sha-1 maybe?
-      log "Checking if the specified app already exists"
-      if ssh_path_exists(app_username, app_name)
-        die "app #{ app_name } already exists on #{ server_hostname }"
-      end
+      #log "Checking if the specified app already exists"
+      #if ssh_path_exists(app_username, app_name)
+      #  die "app #{ app_name } already exists on #{ server_hostname }"
+      #end
 
       # Install the Ruby the app uses
       log "Installing the Ruby used by this project"
