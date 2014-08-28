@@ -20,8 +20,7 @@ module Rubyku
       check_symbol_name! app_name
       check_symbol_name! remote_name
 
-      # Test if the remote project path already exists
-      # TODO: change this to instead verify that it's the same repository -- check the root sha-1 maybe?
+      # Test if the remote project path already exists if we're installing a new app
       #log "Checking if the specified app already exists"
       #if ssh_path_exists(app_username, app_name)
       #  die "app #{ app_name } already exists on #{ server_hostname }"
@@ -66,7 +65,28 @@ module Rubyku
 
       # Push the project to the remote host
       log "Pushing the local repository to the remote"
-      system "git push --all #{ esc remote_name }"
+      push_or_hook
+    end
+
+    def repository_is_up_to_date_on_remote?
+      # Get the latest remote SHA-1
+      script = "cd #{ esc app_name }; git rev-list --max-count=1 master"
+      (stdout, stderr, code, signal) = ssh(app_username, script)
+      remote_sha1 = stdout[/[a-f0-9]{40}/]
+
+      # Get the latest local SHA-1
+      local_sha1 = `git rev-list --max-count=1 master`[/[a-f0-9]{40}/]
+
+      # Test that they're equal
+      remote_sha1 && local_sha1 && remote_sha1 == local_sha1
+    end
+
+    def push_or_hook
+      if repository_is_up_to_date_on_remote?
+        ssh_run_template(app_username, "call_push_hook.sh")
+      else
+        system "git push --all #{ esc remote_name }"
+      end
     end
 
   end
