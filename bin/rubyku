@@ -26,6 +26,10 @@ class App < Thor
     type: :hash,
     desc: "A list of environment variables to add to this app",
     default: {}
+  method_option :envpass,
+    type: :array,
+    desc: "A list of environment variables to pass to this app from the current shell",
+    default: []
   method_option :yes,
     type: :boolean,
     desc: "Skip confirmation and prompting of details",
@@ -37,6 +41,10 @@ class App < Thor
     local_path   = ask("What's the local path to the app?", default: Dir.pwd)
     remote_name  = ask("What name to use for this remote server on the local repository?", default: "production")
     app_name     = ask("What name to use for this app on the server?", default: File.basename(local_path))
+
+    # Build the environment hash
+    env = options[:env] || {}
+    options[:envpass].each { |name| env[name] = ENV[name] }
 
     # Confirm the input values
     puts
@@ -50,6 +58,10 @@ class App < Thor
       row["Local Repository Path", local_path]
       row["Local Repository Remote Name", remote_name]
       row["Remote App Name", app_name]
+
+      env.each do |key, value|
+        row["ENV[#{ key }]", value]
+      end
     end.to_s)
     puts
     exit unless options[:yes] || yes?("Do you want to proceed with these values?")
@@ -60,7 +72,7 @@ class App < Thor
       :local_path   => local_path,
       :remote_name  => remote_name,
       :app_name     => app_name,
-      :env          => options[:env] || {},
+      :env          => env,
     }).run
   end
 
