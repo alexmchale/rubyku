@@ -71,6 +71,16 @@ module Rubyku
       ssh(username, read_template_file(template, template_options))
     end
 
+    def ssh_read_file(username, remote_path)
+      ssh(username, "cat #{ esc remote_path }") do |out, err, code, signal|
+        if code == 0
+          return out
+        else
+          return nil
+        end
+      end
+    end
+
     def ssh_write_file(username, remote_path, content, &block)
       raise "cannot specify both content and block" if content && block
       content ||= block.call
@@ -86,7 +96,7 @@ module Rubyku
     end
 
     def ssh_path_exists(username, remote_path)
-      ssh(app_username, "test -e #{ esc remote_path }") do |out, err, code, signal|
+      ssh(username, "test -e #{ esc remote_path }") do |out, err, code, signal|
         return code == 0
       end
     end

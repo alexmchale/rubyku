@@ -50,22 +50,18 @@ module Rubyku
 
       # Set ENV file
       log "Writing dotenv file in project"
-      ssh_write_file(app_username, "#{ app_name }/.env", nil) do
-        (options[:env] || {}).merge({
-          "RAILS_ENV"       => "production"                                                           ,
-          "PATH"            => "/home/#{ app_username }/.rvm/wrappers/#{ app_name }:$PATH" ,
-          "SECRET_KEY_BASE" => SecureRandom.hex(64)                                                   ,
-        }).map do |key, value|
-          "#{ key }=#{ value }\n"
-        end.join
-      end
+      update_env_file!
 
       # Set the nginx configuration
       ssh_run_template("root", "nginx.configure-app.sh")
 
       # Push the project to the remote host
       log "Pushing the local repository to the remote"
-      push_or_hook
+      if repository_is_up_to_date_on_remote?
+        ssh_run_template(app_username, "call_push_hook.sh")
+      else
+        system "git push --all #{ esc remote_name }"
+      end
     end
 
     def repository_is_up_to_date_on_remote?
@@ -81,12 +77,23 @@ module Rubyku
       remote_sha1 && local_sha1 && remote_sha1 == local_sha1
     end
 
-    def push_or_hook
-      if repository_is_up_to_date_on_remote?
-        ssh_run_template(app_username, "call_push_hook.sh")
-      else
-        system "git push --all #{ esc remote_name }"
-      end
+    # Update the env file on the server, reading and maintaining any existing keys.
+    def update_env_file!
+      present_env = ssh_read_file(app_username, "#{ app_name }/.env").to_s
+
+      env = {
+        "RAILS_ENV"       => "production",
+        "PATH"            => "/home/#{ app_username }/.rvm/wrappers/#{ app_name }:$PATH",
+        "SECRET_KEY_BASE" => SecureRandom.hex(64),
+      }.merge(
+        Dotenv::Parser.call(present_env)
+      ).merge(
+        options[:env] || {}
+      ).map { |k, v|
+        "export #{ k }=#{ v.inspect }\n"
+      }.join("")
+
+      ssh_write_file(app_username, "#{ app_name }/.env", env)
     end
 
   end

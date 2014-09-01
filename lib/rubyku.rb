@@ -8,6 +8,7 @@ require "thor"
 require "net/ssh"
 require "term/ansicolor"
 require "terminal-table"
+require "dotenv"
 
 require "rubyku/version"
 require "rubyku/rubyku_error"
