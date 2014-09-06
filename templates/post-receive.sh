@@ -51,7 +51,6 @@ done
 # Ensure we've got a clean repository on the latest commit.
 git checkout
 git reset --hard HEAD
-git clean -df
 
 # Load RVM.
 cd .
